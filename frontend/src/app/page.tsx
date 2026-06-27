@@ -1,5 +1,9 @@
-import { createMockGameState } from "@/lib/game/mock-game";
-import { buildBoardCells, maskGameStateForPlayer } from "@/lib/game/state";
+"use client";
+
+import Image from "next/image";
+import { useEffect, useMemo, useState, useTransition } from "react";
+
+import { getPieceAsset } from "@/lib/game/piece-assets";
 import type { BoardCellView, MaskedGameState, PlayerId } from "@/lib/game/types";
 
 const navItems = [
@@ -9,16 +13,42 @@ const navItems = [
   { label: "Rules", icon: "book" },
 ] as const;
 
-const statusItems = [
-  { label: "Turn", value: "Blue Command" },
-  { label: "Board", value: "8 by 9 field" },
-  { label: "Visibility", value: "Server-masked" },
-] as const;
-
 function getCoordinateLabel(row: number, column: number, rows: number): string {
   const fileLabel = String.fromCharCode(65 + column);
   const rankLabel = String(rows - row);
   return `${fileLabel}${rankLabel}`;
+}
+
+function getPlayerLabel(player: PlayerId): string {
+  return player === "blue" ? "Blue Command" : "North Command";
+}
+
+function buildBoardCells(state: MaskedGameState): BoardCellView[] {
+  const pieceByCoordinate = new Map<string, MaskedGameState["pieces"][number]>();
+
+  for (const piece of state.pieces) {
+    pieceByCoordinate.set(`${piece.row}:${piece.column}`, piece);
+  }
+
+  const cells: BoardCellView[] = [];
+
+  for (let row = 0; row < state.board.rows; row += 1) {
+    for (let column = 0; column < state.board.columns; column += 1) {
+      cells.push({
+        coordinate: `${row}:${column}`,
+        row,
+        column,
+        tone: (row + column) % 2 === 0 ? "light" : "dark",
+        piece: pieceByCoordinate.get(`${row}:${column}`) ?? null,
+      });
+    }
+  }
+
+  return cells;
+}
+
+function countPiecesForOwner(state: MaskedGameState, owner: PlayerId): number {
+  return state.pieces.filter((piece) => piece.owner === owner).length;
 }
 
 function SidebarIcon({ icon }: { icon: (typeof navItems)[number]["icon"] }) {
@@ -69,7 +99,7 @@ function SidebarIcon({ icon }: { icon: (typeof navItems)[number]["icon"] }) {
 function Avatar({ accent, label }: { accent: string; label: string }) {
   return (
     <div
-      className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+      className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
       style={{
         background: `linear-gradient(135deg, ${accent}, rgba(255,255,255,0.12))`,
       }}
@@ -80,45 +110,49 @@ function Avatar({ accent, label }: { accent: string; label: string }) {
   );
 }
 
-function PlayerCard({
+function PlayerStrip({
   player,
-  perspective,
   positionLabel,
+  pieceCount,
 }: {
   player: MaskedGameState["players"][PlayerId];
-  perspective: PlayerId;
   positionLabel: string;
+  pieceCount: number;
 }) {
-  const isPerspective = player.id === perspective;
-
   return (
-    <div className="flex items-center justify-between rounded-[28px] border border-white/10 bg-[var(--panel)] px-4 py-3 shadow-[var(--shadow)] backdrop-blur">
+    <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-[var(--panel)] px-3 py-3 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
       <div className="flex items-center gap-3">
         <Avatar accent={player.accentColor} label={player.username.slice(0, 2).toUpperCase()} />
         <div>
-          <p className="text-sm font-semibold tracking-[0.04em] text-white">{player.username}</p>
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--muted)]">
+          <p className="text-sm font-semibold leading-tight tracking-tight text-white">
+            {player.username}
+          </p>
+          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--muted)]">
             {positionLabel}
           </p>
         </div>
       </div>
-      <div className="text-right">
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--muted)]">
-          {isPerspective ? "Your force" : "Hidden force"}
-        </p>
-        <p className="mt-1 text-sm text-[var(--success)]">{player.capturedPieces} captured</p>
+      <div className="flex items-center gap-5 text-right">
+        <div>
+          <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-white/35">
+            Pieces
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-white">{pieceCount}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-white/35">
+            Captured
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-[var(--success)]">
+            {player.capturedPieces}
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-function PieceToken({
-  piece,
-  ownerAccent,
-}: {
-  piece: BoardCellView["piece"];
-  ownerAccent: string;
-}) {
+function PieceToken({ piece }: { piece: BoardCellView["piece"] }) {
   if (!piece) {
     return null;
   }
@@ -127,120 +161,261 @@ function PieceToken({
 
   return (
     <div
-      className="flex h-[72%] w-[72%] items-center justify-center rounded-2xl border text-center shadow-[0_12px_24px_rgba(0,0,0,0.16)]"
+      className="flex h-[74%] w-[74%] items-center justify-center rounded-[18px] border shadow-[0_10px_24px_rgba(0,0,0,0.14)] transition-all duration-200 ease-out group-hover:scale-110 group-hover:shadow-[0_14px_32px_rgba(0,0,0,0.28)]"
       style={{
         background: isHidden
           ? "linear-gradient(180deg, rgba(18,12,14,0.92), rgba(31,22,25,0.95))"
-          : `linear-gradient(180deg, ${ownerAccent}, rgba(22,18,20,0.9))`,
-        borderColor: isHidden ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.16)",
+          : "linear-gradient(180deg, rgba(239,232,221,0.98), rgba(222,212,199,0.96))",
+        borderColor: isHidden ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.14)",
       }}
     >
-      <div className="flex flex-col items-center gap-0.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70">
-          {piece.owner}
-        </span>
-        <span className="text-sm font-semibold text-white">
-          {isHidden ? "?" : piece.rankLabel}
-        </span>
+      <div className="relative flex h-full w-full items-center justify-center">
+        <Image
+          src={getPieceAsset(piece.rank, isHidden)}
+          alt={isHidden ? "Hidden opponent piece" : `${piece.rankLabel} piece`}
+          width={40}
+          height={40}
+          className="h-auto w-[56%] object-contain"
+          unoptimized
+        />
       </div>
     </div>
   );
 }
 
-function BoardCell({
-  cell,
-  rows,
-  perspective,
-  state,
-}: {
-  cell: BoardCellView;
-  rows: number;
-  perspective: PlayerId;
-  state: MaskedGameState;
-}) {
-  const ownerAccent = cell.piece
-    ? state.players[cell.piece.owner].accentColor
-    : "transparent";
-  const coordinate = getCoordinateLabel(cell.row, cell.column, rows);
-  const showCoordinate =
-    cell.row === 0 ||
-    cell.row === rows - 1 ||
-    cell.column === 0 ||
-    cell.column === state.board.columns - 1;
-  const isPerspectivePiece = cell.piece?.owner === perspective;
-
+function StatusRail({ turn }: { turn: PlayerId }) {
   return (
-    <div
-      className="relative aspect-square min-h-[56px] border border-[color:var(--board-grid)]"
-      style={{
-        backgroundColor: cell.tone === "dark" ? "var(--board-dark)" : "var(--board-light)",
-      }}
-    >
-      {showCoordinate ? (
-        <span
-          className="absolute left-2 top-1.5 font-mono text-[10px] tracking-[0.14em]"
-          style={{
-            color:
-              cell.tone === "dark"
-                ? "rgba(245, 237, 226, 0.78)"
-                : "rgba(48, 37, 40, 0.56)",
-          }}
-        >
-          {coordinate}
-        </span>
-      ) : null}
-
-      <div className="flex h-full items-center justify-center p-2">
-        <PieceToken piece={cell.piece} ownerAccent={ownerAccent} />
+    <div className="mx-auto flex w-full max-w-[560px] items-center justify-center rounded-full border border-white/8 bg-[var(--panel)] px-5 py-2.5 shadow-[0_18px_44px_rgba(0,0,0,0.22)]">
+      <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.2em] sm:text-[11px]">
+        <span className="text-white/40">Turn</span>
+        <span className="font-semibold text-white">{getPlayerLabel(turn)}</span>
+        <span className="mx-2 h-3 w-px bg-white/10" />
+        <span className="text-white/40">Board</span>
+        <span className="font-semibold text-white">8×9</span>
+        <span className="mx-2 h-3 w-px bg-white/10" />
+        <span className="text-white/40">State</span>
+        <span className="font-semibold text-white">Masked</span>
       </div>
-
-      {cell.piece && isPerspectivePiece ? (
-        <span className="absolute bottom-1.5 right-2 font-mono text-[9px] uppercase tracking-[0.2em] text-white/78">
-          Own
-        </span>
-      ) : null}
     </div>
   );
 }
 
-function StatusPill({ label, value }: { label: string; value: string }) {
+function LoadingScreen() {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-      <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-sm font-medium text-white">{value}</p>
-    </div>
+    <main className="flex h-screen items-center justify-center bg-[var(--background)] text-[var(--foreground)]">
+      <div className="rounded-2xl border border-white/8 bg-[var(--panel)] px-6 py-5 shadow-[0_24px_56px_rgba(0,0,0,0.24)]">
+        <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-white/35">
+          Loading match
+        </p>
+      </div>
+    </main>
   );
 }
 
 export default function Home() {
-  const perspective: PlayerId = "blue";
-  const state = maskGameStateForPlayer(createMockGameState(), perspective);
-  const cells = buildBoardCells(state);
+  const [perspective, setPerspective] = useState<PlayerId>("blue");
+  const [state, setState] = useState<MaskedGameState | null>(null);
+  const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
+  const [movingPieceId, setMovingPieceId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadState() {
+      const response = await fetch(`/api/game/local?player=${perspective}`, {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as MaskedGameState | { error: string };
+
+      if (cancelled) {
+        return;
+      }
+
+      if (!response.ok || "error" in data) {
+        setError("Unable to load the local match.");
+        return;
+      }
+
+      setState(data);
+      setSelectedPieceId(null);
+      setError(null);
+    }
+
+    void loadState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [perspective]);
+
+  const cells = useMemo(() => (state ? buildBoardCells(state) : []), [state]);
+  const selectedPiece = useMemo(
+    () => state?.pieces.find((piece) => piece.id === selectedPieceId) ?? null,
+    [selectedPieceId, state],
+  );
+
+  const legalTargets = useMemo(() => {
+    if (!state || !selectedPiece || state.turn !== perspective || state.winner) {
+      return new Set<string>();
+    }
+
+    const occupiedByFriendly = new Set(
+      state.pieces
+        .filter((piece) => piece.owner === perspective)
+        .map((piece) => `${piece.row}:${piece.column}`),
+    );
+    const deltas = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ] as const;
+    const nextTargets = new Set<string>();
+
+    for (const [rowDelta, columnDelta] of deltas) {
+      const nextRow = selectedPiece.row + rowDelta;
+      const nextColumn = selectedPiece.column + columnDelta;
+
+      if (
+        nextRow < 0 ||
+        nextRow >= state.board.rows ||
+        nextColumn < 0 ||
+        nextColumn >= state.board.columns
+      ) {
+        continue;
+      }
+
+      if (occupiedByFriendly.has(`${nextRow}:${nextColumn}`)) {
+        continue;
+      }
+
+      nextTargets.add(`${nextRow}:${nextColumn}`);
+    }
+
+    return nextTargets;
+  }, [perspective, selectedPiece, state]);
+
+  async function refreshState(nextPerspective: PlayerId) {
+    const response = await fetch(`/api/game/local?player=${nextPerspective}`, {
+      cache: "no-store",
+    });
+    const data = (await response.json()) as MaskedGameState | { error: string };
+
+    if (!response.ok || "error" in data) {
+      setError("Unable to refresh the local match.");
+      return;
+    }
+
+    setState(data);
+    setSelectedPieceId(null);
+    setError(null);
+  }
+
+  async function submitMove(targetRow: number, targetColumn: number) {
+    if (!selectedPiece || !state) {
+      return;
+    }
+
+    setError(null);
+    setMovingPieceId(selectedPiece.id);
+
+    const response = await fetch("/api/game/local/move", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        player: perspective,
+        pieceId: selectedPiece.id,
+        targetRow,
+        targetColumn,
+      }),
+    });
+
+    const data = (await response.json()) as MaskedGameState | { error: string };
+
+    setMovingPieceId(null);
+
+    if (!response.ok || "error" in data) {
+      setError("error" in data ? data.error : "Move failed.");
+      return;
+    }
+
+    setState(data);
+    setSelectedPieceId(null);
+  }
+
+  async function resetMatch() {
+    await fetch("/api/game/local", {
+      method: "DELETE",
+    });
+    await refreshState(perspective);
+  }
+
+  function handleCellClick(cell: BoardCellView) {
+    if (!state || isPending) {
+      return;
+    }
+
+    const cellKey = `${cell.row}:${cell.column}`;
+    const isLegalTarget = legalTargets.has(cellKey);
+
+    if (selectedPiece && isLegalTarget) {
+      void submitMove(cell.row, cell.column);
+      return;
+    }
+
+    if (!cell.piece) {
+      setSelectedPieceId(null);
+      return;
+    }
+
+    const isOwnPiece = cell.piece.owner === perspective;
+    const canSelect = isOwnPiece && state.turn === perspective && !state.winner;
+
+    if (!canSelect) {
+      setSelectedPieceId(null);
+      return;
+    }
+
+    setSelectedPieceId((current) => (current === cell.piece?.id ? null : cell.piece?.id ?? null));
+  }
+
+  if (!state) {
+    return <LoadingScreen />;
+  }
+
+  const northCount = countPiecesForOwner(state, "red");
+  const southCount = countPiecesForOwner(state, "blue");
 
   return (
-    <main className="min-h-screen bg-transparent text-[var(--foreground)]">
-      <div className="grid min-h-screen lg:grid-cols-[96px_minmax(0,1fr)]">
-        <aside className="flex min-h-full flex-row items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] px-5 py-4 lg:flex-col lg:justify-start lg:border-b-0 lg:border-r lg:px-4 lg:py-6">
+    <main className="h-screen overflow-hidden bg-transparent text-[var(--foreground)]">
+      <div className="grid h-full lg:grid-cols-[84px_minmax(0,1fr)]">
+        <aside className="flex items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] px-4 py-3 lg:flex-col lg:justify-start lg:border-b-0 lg:border-r lg:px-3 lg:py-5">
           <div className="flex items-center gap-3 lg:flex-col">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04] text-lg font-semibold text-white">
-              GG
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04]">
+              <span className="font-display text-xl font-semibold italic tracking-tight text-white">
+                G
+              </span>
             </div>
             <div className="lg:[writing-mode:vertical-rl]">
-              <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-[var(--muted)]">
-                Generals
+              <p className="text-[9px] font-medium uppercase tracking-[0.28em] text-white/35">
+                Command
               </p>
             </div>
           </div>
 
           <nav className="hidden flex-1 items-center justify-center lg:flex">
-            <ul className="flex flex-col gap-4">
+            <ul className="flex flex-col gap-3">
               {navItems.map((item) => (
                 <li key={item.label}>
-                  <a
-                    href="#"
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.03] text-white/78 transition hover:bg-[var(--accent-soft)] hover:text-white"
-                    aria-label={item.label}
-                  >
+                    <a
+                        href="#"
+                        className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.03] text-white/78 transition-all duration-200 ease-out hover:scale-110 hover:bg-[var(--accent-soft)] hover:text-white active:scale-95"
+                        aria-label={item.label}
+                      >
                     <SidebarIcon icon={item.icon} />
                   </a>
                 </li>
@@ -248,117 +423,244 @@ export default function Home() {
             </ul>
           </nav>
 
-          <div className="flex gap-2 lg:mt-auto lg:w-full lg:flex-col">
-            <button className="rounded-2xl border border-[color:rgba(183,119,102,0.28)] bg-[var(--accent-soft)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[rgba(183,119,102,0.22)] lg:px-0">
-              Sign Up
-            </button>
-            <button className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-[var(--muted)] transition hover:text-white lg:px-0">
-              Log In
-            </button>
-          </div>
+          <div className="hidden h-11 w-11 rounded-2xl border border-white/8 bg-white/[0.03] lg:block" />
         </aside>
 
         <section className="relative overflow-hidden bg-[var(--background)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(148,68,68,0.12),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_35%)]" />
-          <div className="relative mx-auto flex min-h-screen w-full max-w-[1520px] flex-col px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
-            <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[var(--muted)]">
-                  War table / hidden ranks
-                </p>
-                <h1 className="mt-3 max-w-2xl font-[family-name:var(--font-display)] text-4xl leading-none font-semibold tracking-[-0.04em] text-white sm:text-6xl">
-                  Fog of command, laid out as a quiet matte-maroon war room.
-                </h1>
-                <p className="mt-4 max-w-2xl text-sm leading-6 text-[var(--muted)] sm:text-base">
-                  The board stays central, the chrome stays disciplined, and hidden information
-                  remains a server concern rather than a client-side promise.
-                </p>
-              </div>
+          <div className="relative mx-auto grid h-full max-w-[1500px] grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 py-4 sm:px-6 lg:px-7 lg:py-5">
+            <StatusRail turn={state.turn} />
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                {statusItems.map((item) => (
-                  <StatusPill key={item.label} label={item.label} value={item.value} />
-                ))}
-              </div>
-            </header>
-
-            <div className="mt-8 grid flex-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <section className="rounded-[36px] border border-white/8 bg-[var(--panel-strong)] p-4 shadow-[var(--shadow)] sm:p-6">
-                <PlayerCard
+            <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+              <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-2xl border border-white/8 bg-[var(--panel-strong)] p-3 shadow-[0_28px_64px_rgba(0,0,0,0.28)] sm:p-4">
+                <PlayerStrip
                   player={state.players.red}
-                  perspective={perspective}
-                  positionLabel="Opponent / North edge"
+                  positionLabel="North command"
+                  pieceCount={northCount}
                 />
 
-                <div className="mt-4 rounded-[32px] border border-white/8 bg-[var(--board-frame)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-4">
-                  <div className="mb-3 flex items-center justify-between px-1">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--muted)]">
-                      Active theater
-                    </p>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--muted)]">
-                      South perspective
-                    </p>
-                  </div>
+                <div className="relative flex min-h-0 items-center justify-center rounded-xl border border-white/8 bg-[var(--board-frame)] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-3">
+                  {state.winner ? (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-xl bg-black/60 backdrop-blur-[2px]">
+                      <div className="rounded-2xl border border-amber-300/15 bg-[var(--panel-strong)]/95 px-7 py-5 text-center shadow-[0_24px_56px_rgba(0,0,0,0.4)]">
+                        <p className="text-[9px] font-medium uppercase tracking-[0.28em] text-amber-300/60">
+                          Game Over
+                        </p>
+                        <p className="mt-2 font-display text-2xl font-semibold italic tracking-tight text-white">
+                          {getPlayerLabel(state.winner)} wins
+                        </p>
+                        <p className="mt-1.5 text-[13px] leading-5 text-white/45">
+                          {state.winnerReason}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void resetMatch()}
+                          className="mt-4 rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-[11px] font-medium text-white transition-all duration-150 ease-out hover:bg-white/[0.12] active:scale-95"
+                        >
+                          New Match
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <div
-                    className="grid overflow-hidden rounded-[24px] border border-white/8 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_30px_60px_rgba(0,0,0,0.22)]"
+                    className={`grid aspect-[8/9] h-full max-h-[60vh] w-auto max-w-full overflow-hidden rounded-xl border border-white/8 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_26px_54px_rgba(0,0,0,0.2)] ${
+                      state.winner ? "pointer-events-none opacity-40" : ""
+                    }`}
                     style={{
                       gridTemplateColumns: `repeat(${state.board.columns}, minmax(0, 1fr))`,
                     }}
                   >
-                    {cells.map((cell) => (
-                      <BoardCell
-                        key={cell.coordinate}
-                        cell={cell}
-                        rows={state.board.rows}
-                        perspective={perspective}
-                        state={state}
-                      />
-                    ))}
+                    {cells.map((cell) => {
+                      const isSelected = cell.piece?.id === selectedPieceId;
+                      const isMoving = cell.piece?.id === movingPieceId;
+                      const isLegalTarget = legalTargets.has(`${cell.row}:${cell.column}`);
+
+                      return (
+                        <button
+                          key={cell.coordinate}
+                          type="button"
+                          onClick={() => handleCellClick(cell)}
+                          className={`relative aspect-square border border-[color:var(--board-grid)] transition-shadow duration-200 hover:z-10 ${isMoving ? "pointer-events-none" : "cursor-pointer"}`}
+                          style={{
+                            backgroundColor:
+                              cell.tone === "dark" ? "var(--board-dark)" : "var(--board-light)",
+                            boxShadow: isMoving
+                              ? "inset 0 0 0 2px rgba(232,226,217,0.3), inset 0 0 24px rgba(232,226,217,0.06)"
+                              : isSelected
+                                ? "inset 0 0 0 2px rgba(232,226,217,0.95), inset 0 0 20px rgba(232,226,217,0.12)"
+                                : isLegalTarget
+                                  ? "inset 0 0 0 3px rgba(183,119,102,0.85), inset 0 0 16px rgba(183,119,102,0.2)"
+                                  : undefined,
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected && !isLegalTarget) {
+                              e.currentTarget.style.boxShadow = "inset 0 0 0 1px rgba(255,255,255,0.15)";
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected && !isLegalTarget) {
+                              e.currentTarget.style.boxShadow = "";
+                            }
+                          }}
+                        >
+                          {cell.row === 0 ||
+                          cell.row === state.board.rows - 1 ||
+                          cell.column === 0 ||
+                          cell.column === state.board.columns - 1 ? (
+                            <span
+                              className="absolute left-1 top-1 text-[8px] font-semibold leading-none sm:left-1.5 sm:top-1.5 sm:text-[9px]"
+                              style={{
+                                color:
+                                  cell.tone === "dark"
+                                    ? "rgba(245, 237, 226, 0.82)"
+                                    : "rgba(48, 37, 40, 0.72)",
+                                letterSpacing: "0.04em",
+                              }}
+                            >
+                              {getCoordinateLabel(cell.row, cell.column, state.board.rows)}
+                            </span>
+                          ) : null}
+
+                          <div className={`flex h-full items-center justify-center p-1.5 sm:p-2 ${isMoving ? "group" : "group"}`}>
+                            {isMoving ? (
+                              <span className="absolute inset-[2px] animate-ping rounded-[22px] border-2 border-white/20 opacity-40" />
+                            ) : null}
+                            <PieceToken piece={cell.piece} />
+                          </div>
+
+                          {cell.piece?.owner === perspective ? (
+                            <span className="absolute bottom-1 right-1.5">
+                              <span className="block h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_6px_rgba(183,119,102,0.5)]" />
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <PlayerCard
-                    player={state.players.blue}
-                    perspective={perspective}
-                    positionLabel="You / South edge"
-                  />
-                </div>
+                <PlayerStrip
+                  player={state.players.blue}
+                  positionLabel="South command"
+                  pieceCount={southCount}
+                />
               </section>
 
-              <aside className="grid gap-4 self-start">
-                <section className="rounded-[30px] border border-white/8 bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--muted)]">
-                    Arbiter model
-                  </p>
-                  <div className="mt-4 grid gap-3 text-sm leading-6 text-[var(--muted)]">
-                    <p>
-                      This page is rendered from a masked server snapshot. Your pieces retain
-                      rank labels. Opponent pieces expose only ownership and position.
-                    </p>
-                    <p>
-                      The same projection backs the API route, which keeps the future WebSocket
-                      layer honest: clients receive only the view they are entitled to inspect.
-                    </p>
-                  </div>
-                </section>
-
-                <section className="rounded-[30px] border border-white/8 bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--muted)]">
+              <aside className="flex min-h-0 flex-col rounded-2xl border border-white/8 bg-[var(--panel)] p-4 shadow-[0_24px_56px_rgba(0,0,0,0.24)]">
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] font-medium uppercase tracking-[0.24em] text-white/40">
                     Match feed
                   </p>
-                  <ul className="mt-4 grid gap-3 text-sm text-white/88">
-                    <li className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-                      Blue Major advanced and now pressures the center lane.
-                    </li>
-                    <li className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-                      Red presence on the north file remains unidentified.
-                    </li>
-                    <li className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-                      Next integration step: authoritative move submission over WebSockets.
-                    </li>
-                  </ul>
-                </section>
+                  <span className="font-display text-[11px] font-medium italic tracking-tight text-white/20">
+                    Local
+                  </span>
+                </div>
+
+                <div className="mt-3 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => startTransition(() => setPerspective("blue"))}
+                    className={`rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all duration-150 ease-out active:scale-95 ${
+                      perspective === "blue"
+                        ? "bg-[var(--accent-soft)] text-white"
+                        : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
+                    }`}
+                  >
+                    Blue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startTransition(() => setPerspective("red"))}
+                    className={`rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all duration-150 ease-out active:scale-95 ${
+                      perspective === "red"
+                        ? "bg-[var(--accent-soft)] text-white"
+                        : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
+                    }`}
+                  >
+                    Red
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void resetMatch()}
+                    className="ml-auto rounded-lg px-3 py-1.5 text-[11px] font-medium text-white/30 transition-all duration-150 ease-out hover:bg-white/[0.06] hover:text-white/60 active:scale-95"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-white/7 bg-white/[0.03] px-3 py-3">
+                  <p className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/35">
+                    Viewing
+                  </p>
+                  <p className="mt-1 text-sm font-semibold tracking-tight text-white">{getPlayerLabel(perspective)}</p>
+                  <p className="mt-2 text-[12px] leading-5 text-[var(--muted)]">
+                    {state.winner
+                      ? `${getPlayerLabel(state.winner)} wins. ${state.winnerReason}`
+                      : state.turn === perspective
+                        ? "Select one of your pieces, then click an adjacent square."
+                        : "It is the other side's turn. Switch perspective or wait."}
+                  </p>
+                  {error ? (
+                    <p className="mt-2 rounded-xl border border-red-500/20 bg-red-500/8 px-3 py-2 text-[12px] font-medium text-red-300">
+                      {error}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                  {state.feed.length === 0 ? (
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-white/8 bg-white/[0.02] px-4 py-8 text-center">
+                      <div>
+                          <p className="text-[9px] font-medium uppercase tracking-[0.24em] text-white/25">
+                            No events yet
+                          </p>
+                        <p className="mt-2 text-[12px] leading-5 text-white/25">
+                          Move a piece to start the match log.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <ul className="grid gap-1.5 text-[12px] leading-5 text-white/75">
+                      {state.feed.map((item) => {
+                        const eventStyles = {
+                          init: "border-l-2 border-white/10",
+                          move: "border-l-2 border-white/15",
+                          advance: "border-l-2 border-[var(--success)]/50",
+                          repel: "border-l-2 border-red-400/35",
+                          split: "border-l-2 border-amber-400/35",
+                          win: "border-l-2 border-amber-300/60",
+                        }[item.eventType ?? "move"];
+
+                        return (
+                          <li
+                            key={item.id}
+                            className={`flex items-start gap-2.5 rounded-r-lg px-3 py-2.5 ${eventStyles}`}
+                          >
+                            <span className="mt-1 flex-shrink-0">
+                              {item.eventType === "advance" || item.eventType === "repel" || item.eventType === "split" ? (
+                                <span className="block h-1.5 w-1.5 rounded-full bg-current"
+                                  style={{
+                                    color:
+                                      item.eventType === "advance"
+                                        ? "var(--success)"
+                                        : item.eventType === "repel"
+                                          ? "rgb(248 113 113)"
+                                          : item.eventType === "split"
+                                            ? "rgb(251 191 36)"
+                                            : "inherit",
+                                  }}
+                                />
+                              ) : item.eventType === "win" ? (
+                                <span className="mt-0.5 block h-[5px] w-[5px] rotate-45 rounded-sm bg-amber-300/70" />
+                              ) : null}
+                            </span>
+                            <span className="leading-snug">{item.message}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               </aside>
             </div>
           </div>

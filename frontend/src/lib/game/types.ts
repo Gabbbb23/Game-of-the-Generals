@@ -4,10 +4,15 @@ export type PieceRank =
   | "flag"
   | "five-star"
   | "four-star"
+  | "three-star"
+  | "two-star"
+  | "one-star"
   | "colonel"
+  | "lieutenant-colonel"
   | "major"
   | "captain"
-  | "lieutenant"
+  | "first-lieutenant"
+  | "second-lieutenant"
   | "sergeant"
   | "private"
   | "spy";
@@ -35,12 +40,25 @@ export interface PlayerProfile {
 export interface GameState {
   id: string;
   turn: PlayerId;
+  winner: PlayerId | null;
+  winnerReason: string | null;
+  moveCount: number;
   board: {
     rows: number;
     columns: number;
   };
   players: Record<PlayerId, PlayerProfile>;
   pieces: Piece[];
+  feed: MatchFeedItem[];
+}
+
+export type FeedEventType = "init" | "move" | "advance" | "repel" | "split" | "win";
+
+export interface MatchFeedItem {
+  id: string;
+  message: string;
+  turn: number;
+  eventType?: FeedEventType;
 }
 
 export interface MaskedPieceView {
@@ -48,6 +66,7 @@ export interface MaskedPieceView {
   owner: PlayerId;
   row: number;
   column: number;
+  rank: PieceRank | null;
   rankLabel: string | null;
   visibility: PieceVisibility;
 }
@@ -56,12 +75,16 @@ export interface MaskedGameState {
   id: string;
   viewer: PlayerId;
   turn: PlayerId;
+  winner: PlayerId | null;
+  winnerReason: string | null;
+  moveCount: number;
   board: {
     rows: number;
     columns: number;
   };
   players: Record<PlayerId, PlayerProfile>;
   pieces: MaskedPieceView[];
+  feed: MatchFeedItem[];
 }
 
 export interface BoardCellView {

@@ -17,6 +17,7 @@ function maskPieceForViewer(piece: Piece, viewer: PlayerId): MaskedPieceView {
     owner: piece.owner,
     row: piece.row,
     column: piece.column,
+    rank: isOwnPiece ? piece.rank : null,
     rankLabel: isOwnPiece ? piece.rankLabel : null,
     visibility: isOwnPiece ? "revealed" : "hidden",
   };
@@ -30,11 +31,15 @@ export function maskGameStateForPlayer(
     id: state.id,
     viewer,
     turn: state.turn,
+    winner: state.winner,
+    winnerReason: state.winnerReason,
+    moveCount: state.moveCount,
     board: state.board,
     players: state.players,
     pieces: state.pieces
       .filter((piece) => piece.isAlive)
       .map((piece) => maskPieceForViewer(piece, viewer)),
+    feed: state.feed,
   };
 }
 

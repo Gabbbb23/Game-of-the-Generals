@@ -4,10 +4,15 @@ const RANK_LABELS: Record<PieceRank, string> = {
   flag: "Flag",
   "five-star": "5 Star",
   "four-star": "4 Star",
+  "three-star": "3 Star",
+  "two-star": "2 Star",
+  "one-star": "1 Star",
   colonel: "Colonel",
+  "lieutenant-colonel": "Lt Colonel",
   major: "Major",
   captain: "Captain",
-  lieutenant: "Lt",
+  "first-lieutenant": "1st Lt",
+  "second-lieutenant": "2nd Lt",
   sergeant: "Sgt",
   private: "Pvt",
   spy: "Spy",
@@ -35,6 +40,9 @@ export function createMockGameState(): GameState {
   return {
     id: "match-demo-001",
     turn: "blue",
+    winner: null,
+    winnerReason: null,
+    moveCount: 0,
     board: {
       rows: 9,
       columns: 8,
@@ -55,6 +63,13 @@ export function createMockGameState(): GameState {
         capturedPieces: 2,
       },
     },
+    feed: [
+      {
+        id: "feed-1",
+        turn: 0,
+        message: "Blue Command holds the opening initiative.",
+      },
+    ],
     pieces: [
       createPiece("red-flag", "red", "flag", 0, 3),
       createPiece("red-major", "red", "major", 1, 2),
@@ -66,7 +81,7 @@ export function createMockGameState(): GameState {
       createPiece("blue-five-star", "blue", "five-star", 7, 3),
       createPiece("blue-major", "blue", "major", 7, 5),
       createPiece("blue-captain", "blue", "captain", 6, 2),
-      createPiece("blue-lieutenant", "blue", "lieutenant", 6, 4),
+      createPiece("blue-first-lieutenant", "blue", "first-lieutenant", 6, 4),
       createPiece("blue-sergeant", "blue", "sergeant", 5, 3),
     ],
   };
